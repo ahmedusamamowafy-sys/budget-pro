@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Budget Pro</title>
+<meta name="description" content="Budget Pro: a standalone personal budget studio with rich charts, forecasting, wallet, net worth and more.">
+<meta name="theme-color" content="#070B14">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Budget Pro">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/motion.css">
+<link rel="stylesheet" href="css/sizing.css">
+</head>
+<body>
+
+<!-- Sign in -->
+<div id="login">
+  <form class="login-card" id="loginForm" autocomplete="on">
+    <svg class="login-art" viewBox="0 0 200 140" aria-hidden="true">
+      <defs><linearGradient id="la" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--blue)"/></linearGradient></defs>
+      <rect x="22" y="78" width="26" height="46" rx="8" fill="url(#la)" opacity=".5"/><rect x="58" y="56" width="26" height="68" rx="8" fill="url(#la)" opacity=".75"/>
+      <rect x="94" y="36" width="26" height="88" rx="8" fill="url(#la)"/><rect x="130" y="62" width="26" height="62" rx="8" fill="url(#la)" opacity=".6"/>
+      <path d="M30 70 L72 46 L108 26 L146 52" fill="none" stroke="var(--text)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1 7" opacity=".55"/>
+      <circle cx="162" cy="30" r="20" fill="var(--accent)"/><text x="162" y="38" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-weight="700" font-size="22" fill="var(--accent-ink)">$</text>
+    </svg>
+    <h2>Budget Pro</h2>
+    <p class="muted center" style="margin:4px 0 22px;font-size:12px;font-family:var(--mono)">Personal finance studio</p>
+    <div class="col" style="gap:14px">
+      <div class="field"><label for="loginUser">Username</label><input class="inp" id="loginUser" autocomplete="username" autocapitalize="off" required></div>
+      <div id="loginUsers" class="chips" style="margin-top:-6px"></div>
+      <div class="field"><label for="loginPass">Password</label><input class="inp" id="loginPass" type="password" autocomplete="current-password" required></div>
+      <label class="row" style="font-size:12.5px;color:var(--muted);cursor:pointer"><input type="checkbox" id="loginRemember" style="accent-color:var(--accent)"> Keep me signed in on this device</label>
+      <button class="btn primary block" type="submit" style="padding:13px">Sign in</button>
+      <div class="err-msg" id="loginErr" role="alert"></div>
+      <button class="btn ghost block" type="button" id="loginConnect" style="font-size:12.5px">☁️ Connect this device to my data</button>
+      <div class="card-sub center" id="loginSync" style="font-size:11.5px"></div>
+    </div>
+  </form>
+</div>
+
+<!-- App shell -->
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V11M10 20V5M16 20v-7M22 20H2"/></svg></div>
+      <div><div class="brand-name">Budget Pro</div><div class="brand-sub">SAR · personal studio</div></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot"><div class="user-chip" id="userChip"></div></div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1 id="pageTitle"></h1></div>
+      <div class="top-actions">
+        <button class="sync-btn off" id="syncBtn" title="Sync with your Google Sheet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16.6A4.5 4.5 0 0 0 17.5 8h-1.3A7 7 0 1 0 4 15.3"/><path d="M12 12v9M8.5 17.5 12 21l3.5-3.5"/></svg><span class="sl">Sync</span></button><span class="sync-dot" id="syncDot" style="display:none"></span>
+        <div style="position:relative"><button class="icon-btn" id="eyeBtn" aria-label="Privacy"></button></div>
+        <button class="icon-btn" id="modeBtn" aria-label="Day / night"></button>
+        <button class="icon-btn" id="themeBtn" aria-label="Appearance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.3-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.4a4.6 4.6 0 0 0 4.6-4.6C22 6 17.5 2 12 2z"/></svg></button>
+        <div style="position:relative"><button class="icon-btn" id="userBtn" aria-label="Account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg></button></div>
+      </div>
+    </header>
+    <main class="content" id="content"></main>
+  </div>
+  <nav class="bottomnav" id="bottomnav"></nav>
+  <button class="fab" id="fab" aria-label="Quick add expense"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+</div>
+<div id="toast" role="status"></div>
+
+<script src="js/vendor/chart.umd.js"></script>
+<script src="js/core/utils.js"></script>
+<script src="js/core/seed.js"></script>
+<script src="js/core/store.js"></script>
+<script src="js/core/calc.js"></script>
+<script src="js/core/themes.js"></script>
+<script src="js/core/charts.js"></script>
+<script src="js/core/auth.js"></script>
+<script src="js/core/actions.js"></script>
+<script src="js/core/demo.js"></script>
+<script src="js/core/sync.js"></script>
+<script src="js/core/cloud.js"></script>
+<script src="js/core/motion.js"></script>
+<script src="js/views/add.js"></script>
+<script src="js/views/log.js"></script>
+<script src="js/views/dash.js"></script>
+<script src="js/views/dash2.js"></script>
+<script src="js/views/analytics.js"></script>
+<script src="js/views/budget.js"></script>
+<script src="js/views/sheet.js"></script>
+<script src="js/views/boxes.js"></script>
+<script src="js/views/cards.js"></script>
+<script src="js/views/wallet.js"></script>
+<script src="js/views/networth.js"></script>
+<script src="js/views/invest.js"></script>
+<script src="js/views/transfer.js"></script>
+<script src="js/views/admin.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
