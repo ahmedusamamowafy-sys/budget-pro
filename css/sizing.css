@@ -177,3 +177,19 @@ table.sheet .nm{font-weight:600;font-size:12.5px;color:var(--text)}
 .sync-steps a{color:var(--accent)}
 .sync-state{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
 .sync-state>div{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 12px}
+
+/* ---------- Emergency fund ---------- */
+.ef-ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:15px;flex:none}
+.ef-tog{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;font-size:11.5px;font-weight:700;white-space:nowrap;background:var(--surface);color:var(--muted);border:1px solid var(--border);transition:transform .18s var(--ease-spring),background .2s}
+button.ef-tog{cursor:pointer}button.ef-tog:hover{transform:scale(1.05);border-color:var(--accent)}
+.ef-tog.on{background:color-mix(in srgb,var(--green) 16%,transparent);color:var(--green);border-color:color-mix(in srgb,var(--green) 40%,transparent)}
+.ef-tbl tr.ef-un td{opacity:.78}
+.ef-tbl tr.ef-grp td{background:var(--surface);font-size:12.5px;padding-top:9px;padding-bottom:9px}
+.ef-tbl tr.ef-grp.nec td:first-child{box-shadow:inset 3px 0 0 var(--green)}.ef-tbl tr.ef-grp.un td:first-child{box-shadow:inset 3px 0 0 var(--amber)}
+.ef-tbl tr.ef-tot td{border-top:2px solid var(--border2);background:var(--card2)}
+.ef-src{cursor:pointer}.ef-src input{width:17px;height:17px;accent-color:var(--accent);flex:none}.ef-src:not(.on) .li-t,.ef-src:not(.on) b{opacity:.55}
+.ef-ring{--p:0;--c:var(--accent);width:150px;height:150px;border-radius:50%;flex:none;display:grid;place-items:center;background:conic-gradient(var(--c) calc(var(--p)*1%),var(--surface) 0);position:relative}
+.ef-ring::before{content:"";position:absolute;inset:13px;border-radius:50%;background:var(--card)}
+.ef-ring>div{position:relative;text-align:center;line-height:1.2;max-width:96px}.ef-ring b{font-size:26px;display:block}.ef-ring span{font-size:10.5px;color:var(--muted)}
+.ef-sum .insight{display:block}.ef-sum .insight b{font-weight:700}
+@media (max-width:640px){.ef-ring{width:118px;height:118px}.ef-ring b{font-size:21px}}

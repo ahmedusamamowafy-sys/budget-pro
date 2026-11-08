@@ -13,6 +13,7 @@ BP.TABS = [
   { id: 'savingboxes', label: 'Saving Boxes', icon: 'box',    perm: true },
   { id: 'spendable',   label: 'Spendable',    icon: 'coins',  perm: true },
   { id: 'cards',       label: 'Card Balances', icon: 'card',  perm: true },
+  { id: 'emergency',   label: 'Emergency Fund', icon: 'shield', perm: true },
   { id: 'wallet',      label: 'Wallet',       icon: 'wallet', perm: true },
   { id: 'networth',    label: 'Net Worth',    icon: 'gem',    perm: true },
   { id: 'invest',      label: 'Investments',  icon: 'trend',  perm: true },

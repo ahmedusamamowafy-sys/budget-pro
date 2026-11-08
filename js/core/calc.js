@@ -122,13 +122,29 @@ const C = BP.calc = {
   investPot(){ return C.investBudgetTotal() - C.investedFromBudget(); },
 
   /* ----- emergency fund ----- */
-  essentialAvg(){
-    const cats = D().settings.essentialCats, cur = BP.ymNow();
-    let ms = C.dataMonths().filter(m => m !== cur).slice(-3); if (!ms.length) ms = C.dataMonths().slice(-1); if (!ms.length) return 0;
-    const tot = ms.map(m => BP.sum(D().expenses.filter(e => e.month === m && cats.includes(e.sub)), e => e.amount));
-    return BP.sum(tot) / tot.length;
+  /* settings for the Emergency Fund tab: which money counts, averaging window, target months */
+  efCfg(){ return Object.assign({ liquid: true, boxes: true, pot: false, invest: false, extra: 0, window: 3, target: 6 }, D().settings.ef || {}); },
+  efWindow(n){ const cur = BP.ymNow(); let ms = C.dataMonths().filter(m => m < cur).slice(-(Number(n) || 3)); if (!ms.length) ms = C.dataMonths().slice(-1); return ms; },
+  /* one row per budget item: necessary flag, plan, average actual spend, saving-box balance and the monthly amount it needs */
+  efRows(){
+    const cfg = C.efCfg(), cur = BP.ymNow(), ms = C.efWindow(cfg.window), ess = new Set(D().settings.essentialCats), msSet = new Set(ms), sp = {};
+    D().expenses.forEach(e => { if (msSet.has(e.month)) sp[e.sub] = (sp[e.sub] || 0) + e.amount; });
+    return C.cats().map(c => {
+      const isSB = c.type === 'Saving Box', plan = C.budgetOf(cur, c.sub), avg = ms.length ? (sp[c.sub] || 0) / ms.length : 0;
+      const bal = isSB ? C.boxBalance(c.sub, cur) : null;
+      const need = isSB ? (plan || avg) : (avg || plan);          // saving box → monthly provision; spendable → what you really spend
+      return { sub: c.sub, main: c.main, type: c.type, nec: ess.has(c.sub), plan, avg, bal, need, own: isSB && need > 0 ? Math.max(0, bal) / need : null };
+    });
   },
-  efMonths(){ const a = C.essentialAvg(); return a ? C.liquid() / a : null; },
+  ef(){
+    const cfg = C.efCfg(), rows = C.efRows(), nec = rows.filter(r => r.nec), un = rows.filter(r => !r.nec);
+    const need = BP.sum(nec, r => r.need), unNeed = BP.sum(un, r => r.need);
+    const src = { liquid: C.liquid(), boxes: BP.sum(rows.filter(r => r.type === 'Saving Box'), r => r.bal), pot: Math.max(0, C.investPot()), invest: C.portfolio().value, extra: Number(cfg.extra) || 0 };
+    const total = ['liquid', 'boxes', 'pot', 'invest'].reduce((t, k) => t + (cfg[k] ? src[k] : 0), 0) + src.extra;
+    return { cfg, rows, nec, un, need, unNeed, src, total, months: need ? total / need : null, monthsAll: need + unNeed ? total / (need + unNeed) : null, window: C.efWindow(cfg.window) };
+  },
+  essentialAvg(){ return C.ef().need; },
+  efMonths(){ return C.ef().months; },
 
   /* ----- salary cycle ----- */
   nextSalaryDate(){
