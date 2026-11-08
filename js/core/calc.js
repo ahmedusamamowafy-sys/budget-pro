@@ -94,16 +94,21 @@ const C = BP.calc = {
   liquid: () => BP.sum(D().netWorth.accounts.filter(a => ['bank','cash','savings'].includes(a.type)), a => Number(a.balance) || 0),
 
   /* ----- investments ----- */
-  INV_TYPES: { stocks:'Saudi stocks', global:'Global stocks / ETFs', fund:'Mutual fund', mmf:'Money-market fund', sukuk:'Sukuk / bonds', gold:'Gold', reit:'REIT', realestate:'Real estate', crypto:'Crypto', deposit:'Deposit / savings', business:'Business / partnership', other:'Other' },
-  INV_ICON: { stocks:'📈', global:'🌍', fund:'🧺', mmf:'💵', sukuk:'📜', gold:'🪙', reit:'🏢', realestate:'🏠', crypto:'🪙', deposit:'🏦', business:'🤝', other:'📦' },
+  INV_TYPES: { stocks:'Saudi stocks', global:'Global stocks / ETFs', fund:'Mutual fund', mmf:'Money-market fund', sukuk:'Sukuk / bonds', gold:'Gold', fx:'Foreign currency', reit:'REIT', realestate:'Real estate', crypto:'Crypto', deposit:'Deposit / savings', business:'Business / partnership', other:'Other' },
+  INV_ICON: { stocks:'📈', global:'🌍', fund:'🧺', mmf:'💵', sukuk:'📜', gold:'🪙', fx:'💱', reit:'🏢', realestate:'🏠', crypto:'🪙', deposit:'🏦', business:'🤝', other:'📦' },
   holdings: () => (D().investments && D().investments.holdings) || [],
   /* ----- live valuation ----- */
   OZ_G: 31.1034768, USD_SAR: 3.75, GOLD_TYPES: ['gold'], STOCK_TYPES: ['stocks', 'global', 'fund', 'reit', 'mmf', 'sukuk'], PROPERTY_TYPES: ['realestate'],
+  CURRENCIES: { USD:'US dollar', EUR:'Euro', GBP:'British pound', EGP:'Egyptian pound', AED:'UAE dirham', KWD:'Kuwaiti dinar', QAR:'Qatari riyal', BHD:'Bahraini dinar', OMR:'Omani rial', JOD:'Jordanian dinar', CHF:'Swiss franc', TRY:'Turkish lira', CNY:'Chinese yuan', JPY:'Japanese yen', INR:'Indian rupee', CAD:'Canadian dollar', AUD:'Australian dollar' },
+  /* SAR value of 1 unit of a currency, from the last live rates (USD falls back to the 3.75 peg) */
+  fxRate(code){ code = String(code || '').toUpperCase(); if (!code || code === 'SAR') return 1; const fx = (D().investments || {}).fx || {}; const r = Number((fx.rates || {})[code]) || 0; return r || (code === 'USD' ? C.USD_SAR : 0); },
+  fxInfo(){ const fx = (D().investments || {}).fx; return fx && fx.rates ? fx : null; },
   goldPrice(){ const g = (D().investments || {}).gold || {}; const usdOz = Number(g.usdOz) || 0; return usdOz ? { usdOz, sarG24: usdOz * C.USD_SAR / C.OZ_G, at: g.at, source: g.source } : null; },
-  valueMode(h){ if (h.type === 'gold' && Number(h.grams) > 0 && C.goldPrice()) return 'gold'; if (C.STOCK_TYPES.includes(h.type) && Number(h.shares) > 0 && Number(h.lastPrice) > 0) return 'stock'; if (h.type === 'realestate' && Number(h.growth)) return 'property'; return 'manual'; },
+  valueMode(h){ if (h.type === 'gold' && Number(h.grams) > 0 && C.goldPrice()) return 'gold'; if (C.STOCK_TYPES.includes(h.type) && Number(h.shares) > 0 && Number(h.lastPrice) > 0) return 'stock'; if (h.type === 'fx' && Number(h.units) > 0 && C.fxRate(h.currency)) return 'fx'; if (h.type === 'realestate' && Number(h.growth)) return 'property'; return 'manual'; },
   holdingValue(h){
     const mode = C.valueMode(h);
     if (mode === 'gold') return Number(h.grams) * (Number(h.karat) || 24) / 24 * C.goldPrice().sarG24;
+    if (mode === 'fx') return Number(h.units) * C.fxRate(h.currency);
     if (mode === 'stock') return Number(h.shares) * Number(h.lastPrice) * (h.currency === 'USD' ? C.USD_SAR : 1);
     const base = Number(h.currentValue != null && h.currentValue !== '' ? h.currentValue : h.amount) || 0;
     if (mode === 'property'){ const from = BP.parseDate(((h.valueAt || '').slice(0, 10)) || h.date || BP.today()); const yrs = Math.max(0, (Date.now() - from) / (365.25 * 864e5)); return base * Math.pow(1 + Number(h.growth) / 100, yrs); }

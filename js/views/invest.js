@@ -48,6 +48,18 @@ const PX = BP.prices = {
     if (!(p > 0)) throw new Error(j.Note || j.Information || ('No quote found for ' + symbol));
     return p;
   },
+  /* live exchange rates — free, no key: open.er-api.com, fallback currency-api on jsDelivr. Stored as SAR per 1 unit. */
+  async fx(){
+    const inv = INV(); let rates = null, source = '';
+    try { const j = await fetch('https://open.er-api.com/v6/latest/SAR').then(r => r.json());
+      if (j && j.result === 'success' && j.rates){ rates = {}; Object.entries(j.rates).forEach(([k, v]) => { if (v > 0) rates[k.toUpperCase()] = 1 / v; }); source = 'open.er-api.com'; } } catch (e) {}
+    if (!rates){ const j = await fetch('https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/sar.json').then(r => r.json()); const o = j && j.sar;
+      if (!o) throw new Error('No exchange-rate source could be reached'); rates = {}; Object.entries(o).forEach(([k, v]) => { if (v > 0) rates[k.toUpperCase()] = 1 / v; }); source = 'currency-api (jsDelivr)'; }
+    const keep = new Set([...Object.keys(C().CURRENCIES), ...C().holdings().filter(h => h.type === 'fx').map(h => String(h.currency || '').toUpperCase())]), out = {};
+    keep.forEach(k => { if (rates[k]) out[k] = +rates[k].toPrecision(7); });
+    if (!out.EUR && !out.USD) throw new Error('Unexpected exchange-rate data');
+    inv.fx = { rates: out, at: new Date().toISOString(), source }; BP.store.persist(true); return inv.fx;
+  },
   links(sym){ const s = String(sym || '').trim(), num = /^\d{4}$/.test(s);
     return [num ? ['Google Finance', `https://www.google.com/finance/quote/${s}:TADAWUL`] : ['Google Finance', `https://www.google.com/search?q=${encodeURIComponent(s + ' stock price')}`],
       ['Yahoo Finance', `https://finance.yahoo.com/quote/${encodeURIComponent(num ? s + '.SR' : s)}`], ...(num ? [['Saudi Exchange', 'https://www.saudiexchange.sa/']] : [])]; }
@@ -56,6 +68,15 @@ async function refreshGold(silent){
   try { await PX.gold(); if (!silent) BP.toast('🪙 Gold price updated from metalcharts.org', 'ok'); BP.app.renderView(true); }
   catch (e) { if (e.message === 'nokey'){ if (!silent) priceSettings(); } else if (!silent) BP.toast(e.message.includes('fetch') ? 'Could not reach metalcharts.org from this page — enter the price manually' : e.message, 'err'); }
 }
+
+async function refreshFx(silent){
+  try { await PX.fx(); if (!silent) BP.toast('💱 Exchange rates updated', 'ok'); BP.app.renderView(true); }
+  catch (e) { if (!silent) BP.toast(String(e.message).includes('fetch') ? 'Could not reach the exchange-rate service — enter the rate manually' : e.message, 'err'); }
+}
+const fxRateFmt = v => v >= 10 ? f2(v) : v >= 0.1 ? (+v).toFixed(4) : (+v).toFixed(5);
+/* guess currency + amount from a name like "375 Euro (Italy)", "1000 USD", "5,000 جنيه" */
+const FX_WORDS = [[/\b(eur|euros?)\b|€|يورو/i, 'EUR'], [/\b(usd|us\s*dollars?|dollars?)\b|\$|دولار/i, 'USD'], [/\b(gbp|pounds?\s*sterling|sterling)\b|£|استرليني/i, 'GBP'], [/\b(egp|egyptian\s*pounds?|le)\b|جنيه/i, 'EGP'], [/\b(aed|dirhams?)\b|درهم/i, 'AED'], [/\b(kwd)\b|دينار كويتي/i, 'KWD'], [/\b(chf|swiss\s*francs?)\b/i, 'CHF'], [/\b(try|lira)\b|ليرة/i, 'TRY']];
+function guessFx(name){ const s = String(name || ''); let cur = null; for (const [re, c] of FX_WORDS) if (re.test(s)){ cur = c; break; } const m = s.match(/(\d[\d,]*(?:\.\d+)?)/); return { cur, units: m ? parseFloat(m[1].replace(/,/g, '')) : null }; }
 
 /* ---- data the expert works from ---- */
 function profileData(){
@@ -116,6 +137,9 @@ BP.views.invest = {
   render(el){
     const c = C(), d = BP.db(), inv = INV(), can = BP.auth.canEdit('invest'), pf = c.portfolio();
     if (inv.keys.metalcharts && (!inv.gold || Date.now() - new Date(inv.gold.at).getTime() > 36e5) && !PX._busy){ PX._busy = true; refreshGold(true).finally(() => { PX._busy = false; }); }
+    const fxH = c.holdings().filter(h => h.type === 'fx'), fx = c.fxInfo();
+    if (fxH.length && (!fx || Date.now() - new Date(fx.at).getTime() > 36e5) && !PX._fxBusy){ PX._fxBusy = true; refreshFx(true).finally(() => { PX._fxBusy = false; }); }
+    const fxShown = [...new Set([...fxH.map(h => String(h.currency || '').toUpperCase()).filter(Boolean), 'USD', 'EUR', 'EGP'])].slice(0, 8);
     const gp = c.goldPrice(), golds = c.holdings().filter(h => h.type === 'gold');
     const pot = c.investPot(), tot = c.investBudgetTotal(), used = c.investedFromBudget(), ms = c.investMonths();
     const hs = c.holdings().slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -144,12 +168,19 @@ BP.views.invest = {
           <div class="gold-k">${[[24, '24K'], [22, '22K'], [21, '21K'], [18, '18K']].map(([k, l]) => BP.h`<div><span>${l}</span><b class="num">${BP.fmt2(gp.sarG24 * k / 24)}</b></div>`)}</div></div>` : BP.ui.empty('🪙', 'Set today\'s gold price')}
         ${golds.length ? BP.h`<div class="card-sub" style="margin-top:10px">${golds.filter(h => h.grams).length} of ${golds.length} gold holdings are valued live from grams × karat × this price.</div>` : ''}
         <div class="row wrap" style="gap:8px;margin-top:12px">${can ? BP.h`<button class="btn sm primary" data-act="goldRefresh">🔄 Refresh</button><button class="btn sm" data-act="goldManual">✏️ Enter price</button><button class="btn sm" data-act="priceSettings">🔑 Price sources</button>` : ''}<a class="btn sm ghost" href="https://metalcharts.org/gold-price" target="_blank" rel="noopener">metalcharts.org ↗</a></div></div>
-      <div class="card"><div class="card-h"><div class="card-t big">Gain / loss by holding</div><span class="card-sub">today's value − cost</span></div>${hs.length ? BP.ui.canvas('ivGain', 60 + hs.length * 30) : BP.ui.empty('📊', 'No holdings yet')}</div>
+      <div class="card"><div class="card-h"><div class="card-t big">💱 Exchange rates today</div><span class="card-sub">${fx ? 'updated ' + BP.fmtDT(fx.at) : 'not loaded yet'}</span></div>
+        <div class="gold-k fx-k">${fxShown.map(k => { const r = c.fxRate(k); return BP.h`<div><span>1 ${k}</span><b class="num">${r ? fxRateFmt(r) : '—'}</b><span>SAR</span></div>`; })}</div>
+        ${fxH.length ? BP.h`<div class="list" style="margin-top:10px">${fxH.map(h => { const cur = String(h.currency || '').toUpperCase(), now = c.fxRate(cur), paid = h.units ? h.amount / h.units : 0, g = c.holdingValue(h) - (Number(h.amount) || 0);
+          return BP.h`<div class="li"><div class="li-main"><div class="li-t">${h.name}</div><div class="li-s">${h.units ? BP.fmt(h.units) + ' ' + cur + ' · bought at ' + fxRateFmt(paid) + ' → now ' + (now ? fxRateFmt(now) : '?') + ' SAR' : 'set the amount of ' + (cur || 'currency')}</div></div><b class="num ${g >= 0 ? 'up' : 'down'}">${Math.round(g) ? BP.signed(g) : '±0'}</b></div>`; })}</div>`
+          : BP.h`<div class="card-sub" style="margin-top:10px">Add an investment of type 💱 Foreign currency (euros, dollars, pounds…) and its value follows these rates automatically.</div>`}
+        <div class="card-sub" style="margin-top:8px">${fx ? 'Source: ' + fx.source + ' · refreshed at most once an hour' : 'Free live rates, no key needed'}</div>
+        <div class="row wrap" style="gap:8px;margin-top:12px">${can ? BP.h`<button class="btn sm primary" data-act="fxRefresh">🔄 Refresh</button><button class="btn sm" data-act="fxManual">✏️ Enter rate</button>` : ''}<a class="btn sm ghost" href="https://www.google.com/search?q=${encodeURIComponent((fxShown[0] || 'EUR') + ' to SAR')}" target="_blank" rel="noopener">Check on Google ↗</a></div></div>
+      <div class="card span2"><div class="card-h"><div class="card-t big">Gain / loss by holding</div><span class="card-sub">today's value − cost</span></div>${hs.length ? BP.ui.canvas('ivGain', 60 + hs.length * 30) : BP.ui.empty('📊', 'No holdings yet')}</div>
       <div class="card span2"><div class="card-h"><div class="card-t big">Holdings</div><span class="card-sub">assets bought with your investment budget</span></div>
         ${hs.length ? BP.h`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Asset</th><th>Type</th><th>Date</th><th class="r">Cost</th><th class="r">Current value</th><th class="r">Gain</th><th>From budget</th>${can ? BP.h`<th></th>` : ''}</tr></thead><tbody>
           ${hs.map(h => { const v = c.holdingValue(h), g = v - (Number(h.amount) || 0); return BP.h`<tr><td><div class="row" style="gap:8px"><span>${c.INV_ICON[h.type] || '📦'}</span><div><b>${h.name}</b><div class="faint" style="font-size:11px">${valueDetail(h)}${h.platform ? ' · ' + h.platform : ''}</div></div></div></td><td><span class="tag">${c.INV_TYPES[h.type] || h.type}</span></td><td class="num">${h.date ? BP.fmtDate(h.date) : '—'}</td>
             <td class="r num m-sal">${BP.fmt(h.amount)}</td><td class="r num m-sal">${BP.fmt(v)}<div>${modeBadge(h)}</div></td><td class="r num ${g >= 0 ? 'up' : 'down'}">${Math.round(g) ? BP.signed(g) : '—'}${Math.round(g) && h.amount ? BP.h`<div style="font-size:10px">${(g / h.amount * 100 >= 0 ? '+' : '') + (g / h.amount * 100).toFixed(1)}%</div>` : ''}</td><td>${h.fromBudget === false ? BP.h`<span class="tag">before app</span>` : BP.h`<span class="tag sp">deducted</span>`}</td>
-            ${can ? BP.h`<td class="r"><div class="row" style="gap:4px;justify-content:flex-end"><button class="icon-btn" style="width:28px;height:28px" data-act="value" data-id="${h.id}" title="${c.STOCK_TYPES.includes(h.type) ? 'Update price' : h.type === 'gold' ? 'Gold value' : 'Update value'}">${BP.icon('refresh')}</button><button class="icon-btn" style="width:28px;height:28px" data-act="edit" data-id="${h.id}" title="Edit">${BP.icon('edit')}</button><button class="icon-btn" style="width:28px;height:28px;color:var(--red)" data-act="del" data-id="${h.id}" title="Delete">${BP.icon('x')}</button></div></td>` : ''}</tr>`; })}
+            ${can ? BP.h`<td class="r"><div class="row" style="gap:4px;justify-content:flex-end"><button class="icon-btn" style="width:28px;height:28px" data-act="value" data-id="${h.id}" title="${c.STOCK_TYPES.includes(h.type) ? 'Update price' : h.type === 'gold' ? 'Gold value' : h.type === 'fx' ? 'Currency value' : 'Update value'}">${BP.icon('refresh')}</button><button class="icon-btn" style="width:28px;height:28px" data-act="edit" data-id="${h.id}" title="Edit">${BP.icon('edit')}</button><button class="icon-btn" style="width:28px;height:28px;color:var(--red)" data-act="del" data-id="${h.id}" title="Delete">${BP.icon('x')}</button></div></td>` : ''}</tr>`; })}
         </tbody></table></div>` : BP.ui.empty('📈', 'Add what you have already invested — stocks, funds, gold, sukuk, deposits…')}</div>
       <div class="card span2 pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Month</th><th class="r">Investment budget</th><th class="r">Invested from budget</th><th class="r">Pot after month</th></tr></thead><tbody>
         ${inv.opening ? BP.h`<tr><td>Starting pot</td><td class="r num m-sal">${BP.fmt(inv.opening)}</td><td class="r">—</td><td class="r num m-sal">${BP.fmt(inv.opening)}</td></tr>` : ''}
@@ -175,6 +206,8 @@ BP.views.invest = {
     value(el){ const h = INV().holdings.find(x => x.id === el.dataset.id); if (!h) return; valueModal(h); },
     goldRefresh(){ if (!INV().keys.metalcharts) return priceSettings(); refreshGold(false); },
     goldManual(){ goldManual(); },
+    fxRefresh(){ refreshFx(false); },
+    fxManual(){ fxManual(); },
     priceSettings(){ priceSettings(); },
     opening(){ const v = INV();
       BP.modal.open({ title: '🏁 Starting investment pot', body: BP.h`<div class="field"><label>Money set aside for investing before your first plan (SAR)</label><input class="inp num" id="op" type="number" value="${v.opening || 0}"></div><div class="card-sub" style="margin-top:8px">Added once to the pot. Each saved monthly plan then adds its investment budget automatically.</div>`,
@@ -193,6 +226,7 @@ if (!BP.fmt2) BP.fmt2 = f2;
 function valueDetail(h){
   const c = C(), mode = c.valueMode(h), gp = c.goldPrice();
   if (h.type === 'gold' && h.grams){ const paid = h.amount / h.grams; return `${h.grams} g · ${h.karat || 24}K · paid ${f2(paid)}/g${gp ? ' · now ' + f2(gp.sarG24 * (h.karat || 24) / 24) + '/g' : ''}`; }
+  if (h.type === 'fx'){ const cur = String(h.currency || '').toUpperCase(), now = c.fxRate(cur); return h.units ? `${BP.fmt(h.units)} ${cur} · paid ${fxRateFmt(h.amount / h.units)}${now ? ' · now ' + fxRateFmt(now) : ''} SAR/${cur}` : (cur || 'currency') + ' · amount not set'; }
   if (c.STOCK_TYPES.includes(h.type) && h.shares) return `${h.symbol ? h.symbol + ' · ' : ''}${h.shares} × ${h.lastPrice ? f2(h.lastPrice) + ' ' + (h.currency || 'SAR') : 'price not set'}${h.amount && h.shares ? ' · avg cost ' + f2(h.amount / h.shares / (h.currency === 'USD' ? c.USD_SAR : 1)) : ''}`;
   if (mode === 'property') return `valued ${BP.fmt(Number(h.currentValue ?? h.amount))} · grows ${h.growth}%/yr`;
   return h.units ? h.units + ' units' : '';
@@ -200,6 +234,7 @@ function valueDetail(h){
 function modeBadge(h){
   const c = C(), m = c.valueMode(h);
   if (m === 'gold') return BP.h`<span class="vbadge gold">🟡 live gold</span>`;
+  if (m === 'fx') return BP.h`<span class="vbadge fx">💱 live rate</span>`;
   if (m === 'stock') return BP.h`<span class="vbadge stock">📈 ${h.priceAt ? 'price ' + BP.fmtDate(h.priceAt.slice(0, 10)) : 'price'}</span>`;
   if (m === 'property') return BP.h`<span class="vbadge prop">🏠 +${h.growth}%/yr</span>`;
   return h.valueAt ? BP.h`<span class="vbadge">${BP.fmtDate(h.valueAt.slice(0, 10))}</span>` : BP.h`<span class="vbadge">at cost</span>`;
@@ -215,6 +250,16 @@ function valueModal(h){
       <div class="li"><div class="li-main"><div class="li-t">You paid</div><div class="li-s">${f2(h.amount / h.grams)} SAR/g</div></div><b class="num">${BP.fmt(h.amount)}</b></div>
       <div class="li"><div class="li-main"><div class="li-t">Value today</div><div class="li-s">${gp ? f2(gp.sarG24 * (h.karat || 24) / 24) + ' SAR/g · ' + gp.source + ' · ' + BP.fmtDT(gp.at) : 'set the gold price'}</div></div><b class="num">${BP.fmt(c.holdingValue(h))}</b></div></div>
       <div class="card-sub" style="margin-top:10px">The value follows the gold price card automatically — refresh or enter today's price there.</div>` });
+    return;
+  }
+  if (h.type === 'fx'){
+    if (!h.units || !h.currency) return holdingModal(h.id);
+    const cur = String(h.currency).toUpperCase(), now = c.fxRate(cur), fx = c.fxInfo();
+    BP.modal.open({ title: `💱 ${h.name}`, okText: null, cancelText: 'Close', body: BP.h`<div class="list">
+      <div class="li"><div class="li-main"><div class="li-t">Amount held</div></div><b class="num">${BP.fmt(h.units)} ${cur}</b></div>
+      <div class="li"><div class="li-main"><div class="li-t">You paid</div><div class="li-s">${fxRateFmt(h.amount / h.units)} SAR per ${cur}</div></div><b class="num">${BP.fmt(h.amount)}</b></div>
+      <div class="li"><div class="li-main"><div class="li-t">Value today</div><div class="li-s">${now ? fxRateFmt(now) + ' SAR per ' + cur : 'rate not loaded'}${fx ? ' · ' + fx.source + ' · ' + BP.fmtDT(fx.at) : ''}</div></div><b class="num">${BP.fmt(c.holdingValue(h))}</b></div></div>
+      <div class="card-sub" style="margin-top:10px">The value follows the exchange-rate card automatically — refresh it or enter a rate there.</div>` });
     return;
   }
   if (c.STOCK_TYPES.includes(h.type)){
@@ -251,6 +296,18 @@ function goldManual(){
       INV().gold = { usdOz: v, at: new Date().toISOString(), source: 'entered manually' }; BP.store.persist(); BP.toast('Gold price saved', 'ok'); BP.app.renderView(true); } });
 }
 
+function fxManual(){
+  const c = C(), inv = INV(), opts = Object.entries(c.CURRENCIES);
+  BP.modal.open({ title: '💱 Enter an exchange rate', body: BP.h`<div class="form-grid">
+      <div class="field"><label>Currency</label><select class="sel" id="fx-cur">${opts.map(([k, l]) => BP.h`<option value="${k}">${k} · ${l}</option>`)}</select></div>
+      <div class="field"><label>SAR for 1 unit</label><input class="inp num" id="fx-r" type="number" step="any" placeholder="e.g. 4.19"></div></div>
+      <div class="card-sub" style="margin-top:8px">Used until the next automatic refresh. Tip: search "EUR to SAR" on Google.</div>`,
+    onOpen(api){ const s = BP.$('#fx-cur', api.root), r = BP.$('#fx-r', api.root), held = c.holdings().find(h => h.type === 'fx' && h.currency); if (held) s.value = String(held.currency).toUpperCase(); const put = () => { const v = c.fxRate(s.value); r.value = v ? +v.toPrecision(6) : ''; }; s.addEventListener('change', put); put(); },
+    onOk(api){ const k = BP.$('#fx-cur', api.root).value, v = parseFloat(BP.$('#fx-r', api.root).value); if (!(v > 0)){ BP.toast('Enter a valid rate', 'err'); return false; }
+      inv.fx = inv.fx || { rates: {}, at: new Date().toISOString(), source: 'entered manually' }; inv.fx.rates = Object.assign({}, inv.fx.rates, { [k]: v }); inv.fx.at = new Date().toISOString(); inv.fx.source = 'entered manually';
+      BP.store.persist(); BP.toast('Rate saved', 'ok'); BP.app.renderView(true); } });
+}
+
 function priceSettings(){
   const k = INV().keys;
   BP.modal.open({ title: '🔑 Price sources', wide: true, body: BP.h`
@@ -279,6 +336,10 @@ function holdingModal(id){
       <div class="field"><label>Current price per share</label><input class="inp num" id="h-px" type="number" step="any" value="${v.lastPrice || ''}" placeholder="update any time"></div>
       <div class="field"><label>Price currency</label><select class="sel" id="h-cur"><option ${v.currency !== 'USD' ? 'selected' : ''}>SAR</option><option ${v.currency === 'USD' ? 'selected' : ''}>USD</option></select></div></div>
       <div class="card-sub">Value = shares × price. Use the 🔄 button on the holding to update the price (links to the quote page, or fetch with an Alpha Vantage key).</div></div>
+    <div class="vf vf-fx" style="grid-column:1/-1"><div class="form-grid">
+      <div class="field"><label>Currency</label><select class="sel" id="h-fxcur">${Object.entries(c.CURRENCIES).map(([k, l]) => BP.h`<option value="${k}" ${String(v.currency || 'EUR').toUpperCase() === k ? 'selected' : ''}>${k} · ${l}</option>`)}</select></div>
+      <div class="field"><label>Amount of that currency you hold</label><input class="inp num" id="h-units" type="number" step="any" value="${v.type === 'fx' ? (v.units || '') : ''}" placeholder="e.g. 375"></div></div>
+      <div class="card-sub" id="h-fxnote"></div></div>
     <div class="vf vf-prop" style="grid-column:1/-1"><div class="form-grid">
       <div class="field"><label>Current valuation (SAR)</label><input class="inp num" id="h-pval" type="number" step="0.01" value="${v.type === 'realestate' ? (v.currentValue ?? '') : ''}" placeholder="same as price paid"></div>
       <div class="field"><label>Expected growth % per year</label><input class="inp num" id="h-growth" type="number" step="0.1" value="${v.growth || ''}" placeholder="e.g. 4 (optional)"></div></div>
@@ -287,14 +348,23 @@ function holdingModal(id){
     <div class="field"><label>Platform / broker</label><input class="inp" id="h-plat" value="${v.platform || ''}" placeholder="e.g. Al Rajhi Capital, jeweller"></div>
     <div class="field" style="grid-column:1/-1"><label>Notes</label><input class="inp" id="h-notes" value="${v.notes || ''}"></div>
     <label class="row" style="grid-column:1/-1;gap:8px"><input type="checkbox" id="h-budget" ${v.fromBudget !== false ? 'checked' : ''}> Paid from my investment budget (deduct from the pot)</label></div>`,
-    onOpen(api){ const t = BP.$('#h-type', api.root), sync = () => { const ty = t.value, grp = ty === 'gold' ? 'gold' : c.STOCK_TYPES.includes(ty) ? 'stock' : ty === 'realestate' ? 'prop' : 'other';
+    onOpen(api){ const t = BP.$('#h-type', api.root), sync = () => { const ty = t.value, grp = ty === 'gold' ? 'gold' : ty === 'fx' ? 'fx' : c.STOCK_TYPES.includes(ty) ? 'stock' : ty === 'realestate' ? 'prop' : 'other';
         BP.$$('.vf', api.root).forEach(x => { x.style.display = x.classList.contains('vf-' + grp) ? '' : 'none'; }); };
       t.addEventListener('change', sync); sync();
-      const nm = BP.$('#h-name', api.root), gr = BP.$('#h-grams', api.root); nm.addEventListener('input', () => { const m = nm.value.match(/(\d+(?:\.\d+)?)\s*(?:g|gm|gram)/i); if (m && !gr.value) gr.value = m[1]; }); },
+      const nm = BP.$('#h-name', api.root), gr = BP.$('#h-grams', api.root); nm.addEventListener('input', () => { const m = nm.value.match(/(\d+(?:\.\d+)?)\s*(?:g|gm|gram)/i); if (m && !gr.value) gr.value = m[1]; });
+      const fc = BP.$('#h-fxcur', api.root), fu = BP.$('#h-units', api.root), note = BP.$('#h-fxnote', api.root), amt = BP.$('#h-amt', api.root);
+      const fill = () => { const g = guessFx(nm.value); if (g.cur && t.value === 'fx'){ fc.value = g.cur; if (!fu.value && g.units) fu.value = g.units; } };
+      const show = () => { const u = parseFloat(fu.value), r = c.fxRate(fc.value), a = parseFloat(amt.value), d = u * r - a;
+        note.textContent = u > 0 && r ? `Worth ${BP.fmt(u * r)} SAR today (1 ${fc.value} = ${fxRateFmt(r)} SAR)` + (a > 0 ? ` · you paid ${fxRateFmt(a / u)} SAR per ${fc.value} → ${d >= 0 ? 'gain' : 'loss'} ${BP.fmt(Math.abs(d))} SAR` : '')
+          : 'Value = amount × today\'s rate to SAR (refreshed automatically). "Amount paid" above is what it cost you in SAR.'; };
+      nm.addEventListener('input', fill); t.addEventListener('change', () => { fill(); show(); }); [fu, amt].forEach(x => x.addEventListener('input', show)); fc.addEventListener('change', show);
+      if (t.value === 'fx' && !fu.value) fill(); show();
+      if (!c.fxInfo()) PX.fx().then(show).catch(() => {}); },
     onOk(api){ const q = x => BP.$('#' + x, api.root), num = x => q(x).value === '' ? null : parseFloat(q(x).value), ty = q('h-type').value;
       const o = { name: q('h-name').value.trim(), type: ty, date: q('h-date').value, amount: parseFloat(q('h-amt').value), platform: q('h-plat').value.trim(), notes: q('h-notes').value.trim(), fromBudget: q('h-budget').checked };
       if (!o.name || !(o.amount > 0)){ BP.toast('Name and amount are required', 'err'); return false; }
       if (ty === 'gold') Object.assign(o, { grams: num('h-grams'), karat: parseInt(q('h-karat').value) || 24, currentValue: null });
+      else if (ty === 'fx'){ const u = num('h-units'); if (!(u > 0)){ BP.toast('Enter how much of the currency you hold', 'err'); return false; } Object.assign(o, { currency: q('h-fxcur').value, units: u, currentValue: null }); }
       else if (c.STOCK_TYPES.includes(ty)){ const px = num('h-px'); Object.assign(o, { symbol: q('h-sym').value.trim(), shares: num('h-shares'), lastPrice: px, currency: q('h-cur').value, currentValue: null }); if (px && (!v0 || px !== v0.lastPrice)) o.priceAt = new Date().toISOString(); }
       else if (ty === 'realestate'){ const pv = num('h-pval'); Object.assign(o, { currentValue: pv, growth: num('h-growth') || 0 }); if (pv == null) o.valueAt = null; else if (!v0 || pv !== v0.currentValue) o.valueAt = new Date().toISOString(); }
       else Object.assign(o, { currentValue: num('h-val') });
